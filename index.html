@@ -18,8 +18,8 @@ window._fbReady=true;
 document.dispatchEvent(new Event('firebase-ready'));
 </script>
 <style>
-:root{--bg:#f5f5f0;--card:#fff;--border:rgba(0,0,0,0.12);--border2:rgba(0,0,0,0.26);--txt:#1a1a1a;--txt2:#555;--tab-act:#e8e5e0;--inp:#fff;--match:#fff;--saved-bg:#dcfce7;--saved-txt:#166534;--info:#ebebeb;}
-[data-theme=dark]{--bg:#18181b;--card:#27272a;--border:rgba(255,255,255,0.12);--border2:rgba(255,255,255,0.24);--txt:#f4f4f5;--txt2:#a1a1aa;--tab-act:#3f3f46;--inp:#3f3f46;--match:#2d2d31;--saved-bg:#14532d;--saved-txt:#86efac;--info:#3f3f46;}
+:root{--bg:#f5f5f0;--card:#fff;--border:rgba(0,0,0,0.12);--border2:rgba(0,0,0,0.26);--txt:#1a1a1a;--txt2:#555;--tab-act:#e8e5e0;--inp:#fff;--match:#fff;--saved-bg:#dcfce7;--saved-txt:#166534;--info:#ebebeb;--footer-text:rgba(0,0,0,0.6);}
+[data-theme=dark]{--bg:#18181b;--card:#27272a;--border:rgba(255,255,255,0.12);--border2:rgba(255,255,255,0.24);--txt:#f4f4f5;--txt2:#a1a1aa;--tab-act:#3f3f46;--inp:#3f3f46;--match:#2d2d31;--saved-bg:#14532d;--saved-txt:#86efac;--info:#3f3f46;--footer-text:rgba(255,255,255,0.6);}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;transition:background .2s,color .2s}
 .app{max-width:1100px;margin:0 auto;padding:1.5rem 1rem}
@@ -127,6 +127,20 @@ input:checked+.slider:before{transform:translateX(18px)}
 .step-indicator{display:flex;gap:4px;margin-bottom:1.5rem}
 .step{flex:1;height:4px;border-radius:2px;background:var(--border)}
 .step.done{background:#166534}.step.current{background:#854d0e}
+
+/* Footer */
+.footer-noemi{text-align:center;padding:40px 10px;font-family:sans-serif;font-size:.85em;color:var(--footer-text);animation:apparizione 1.5s ease-out;transition:color .3s}
+.link-noemi{color:inherit;text-decoration:none;font-weight:600;border-bottom:1px solid currentColor}
+@keyframes apparizione{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+/* PIN overlay */
+.pin-overlay{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+.pin-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:2rem;max-width:360px;width:90%;text-align:center}
+.pin-title{font-size:20px;font-weight:700;margin-bottom:8px;color:var(--txt)}
+.pin-subtitle{font-size:13px;color:var(--txt2);margin-bottom:1.5rem}
+.pin-input{font-size:28px;font-weight:700;text-align:center;letter-spacing:8px;padding:12px;border:2px solid var(--border2);border-radius:10px;background:var(--inp);color:var(--txt);width:100%;margin-bottom:1rem;-webkit-text-security:disc}
+.pin-input:focus{border-color:#166534;outline:none}
+.pin-err{color:#dc2626;font-size:13px;margin-top:-8px;min-height:20px}
+.pin-hint{font-size:11px;color:var(--txt2);margin-top:8px}
 </style>
 </head>
 <body>
@@ -351,7 +365,10 @@ function exportPDF(cat,fid,gv){
 function renderHome(){
   const ids=Object.keys(DB.tornei||{}).sort((a,b)=>(DB.tornei[b].createdAt||0)-(DB.tornei[a].createdAt||0));
   let html=`<div class="card">
-    <div class="card-title">🏐 Gestione Tornei</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
+      <div class="card-title" style="margin-bottom:0">🏐 Gestione Tornei</div>
+      <button class="bxsm" onclick="changePin()" title="Cambia PIN di accesso">🔑 Cambia PIN</button>
+    </div>
     <div style="display:flex;gap:8px;margin-bottom:1.5rem">
       <button class="bp" style="flex:1;padding:12px;font-size:15px" onclick="startNuovoTorneo()">+ Nuovo torneo</button>
       <button style="padding:12px 18px;font-size:13px" onclick="importTorneo()">⬆ Importa JSON</button>
@@ -858,6 +875,53 @@ function renderBuilder(b){
 // ============================================================
 // RENDER PRINCIPALE
 // ============================================================
+
+// ============================================================
+// PIN AUTHENTICATION
+// ============================================================
+const PIN_KEY='torneo_pin_ok';
+const DEFAULT_PIN='1234'; // PIN di default — cambialo dal pannello admin
+
+function isPinOk(){
+  // Controlla sessione (valida per 8 ore)
+  const saved=sessionStorage.getItem(PIN_KEY);
+  if(!saved)return false;
+  try{const{ok,ts}=JSON.parse(saved);return ok&&(Date.now()-ts)<8*60*60*1000;}catch{return false;}
+}
+
+function showPinOverlay(){
+  const o=document.getElementById('pinOverlay');
+  if(o){o.style.display='flex';setTimeout(()=>document.getElementById('pinInput')?.focus(),100);}
+}
+
+function checkPin(){
+  const input=document.getElementById('pinInput')?.value||'';
+  // PIN salvato su Firebase o default
+  const correctPin=DB._pin||DEFAULT_PIN;
+  if(input===correctPin){
+    sessionStorage.setItem(PIN_KEY,JSON.stringify({ok:true,ts:Date.now()}));
+    document.getElementById('pinOverlay').style.display='none';
+    render();
+  } else {
+    document.getElementById('pinErr').textContent='PIN non corretto. Riprova.';
+    document.getElementById('pinInput').value='';
+    document.getElementById('pinInput')?.focus();
+  }
+}
+
+function requirePin(){
+  if(!isPinOk()){showPinOverlay();return false;}
+  return true;
+}
+
+function changePin(){
+  const newPin=prompt('Inserisci il nuovo PIN (solo numeri, min 4 cifre):');
+  if(!newPin||newPin.length<4||!/^\d+$/.test(newPin)){alert('PIN non valido. Usa almeno 4 cifre numeriche.');return;}
+  const confirm2=prompt('Conferma il nuovo PIN:');
+  if(newPin!==confirm2){alert('I PIN non coincidono.');return;}
+  DB._pin=newPin;sv();alert('PIN aggiornato!');
+}
+
 function render(){
   const root=document.getElementById('root');
   if(!root)return;
@@ -865,7 +929,30 @@ function render(){
   else if(view==='torneo-setup') root.innerHTML=renderTorneoSetup();
   else if(view==='torneo') root.innerHTML=renderTorneo();
 }
-render();
+// Check PIN on load
+if(!isPinOk()){
+  showPinOverlay();
+  // Show basic UI behind overlay so it renders on auth
+} else {
+  render();
+}
 </script>
+
+<!-- PIN OVERLAY -->
+<div class="pin-overlay" id="pinOverlay" style="display:none">
+  <div class="pin-card">
+    <div class="pin-title">🏐 Torneo Pallavolo</div>
+    <div class="pin-subtitle">Inserisci il PIN per accedere alla gestione</div>
+    <input class="pin-input" type="password" inputmode="numeric" maxlength="6" id="pinInput" placeholder="• • • •" onkeydown="if(event.key==='Enter')checkPin()" oninput="document.getElementById('pinErr').textContent=''">
+    <div class="pin-err" id="pinErr"></div>
+    <button class="bp" style="width:100%;padding:12px;font-size:15px" onclick="checkPin()">Accedi</button>
+    <div class="pin-hint">PIN dimenticato? Contatta l'organizzatore.</div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer class="footer-noemi">
+  <p>Progetto e idea di <a href="mailto:tnoemi.marcolini@gmail.com" class="link-noemi">Noemi Marcolini</a></p>
+</footer>
 </body>
 </html>
