@@ -113,7 +113,6 @@ tr:last-child td{border-bottom:none}
   <div class="header-right">
     <div style="display:flex;align-items:center;gap:6px"><span class="sync-dot" id="syncDot"></span><span class="sync-txt" id="syncTxt">Live</span></div>
     <span class="last-update" id="lastUpdate"></span>
-    <button class="qr-btn" onclick="showQR()">📱 QR Code</button>
     <select id="torneoSelect" style="padding:6px 10px;border-radius:8px;background:#1a1d27;color:#fff;border:1px solid var(--border);font-size:13px" onchange="setActiveTorneo(this.value)"></select>
   </div>
 </div>
@@ -262,38 +261,45 @@ function renderLive(){
 }
 
 
-// QR Code
+// QR Code side panel
 let qrGenerated=false;
-function showQR(){
-  const modal=document.getElementById('qrModal');
-  const url=window.location.href.split('?')[0];
-  document.getElementById('qrUrl').textContent=url;
-  if(!qrGenerated){
-    const wrap=document.getElementById('qrCode');
-    wrap.innerHTML='';
-    new QRCode(wrap,{text:url,width:200,height:200,colorDark:'#1a1a1a',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.H});
-    qrGenerated=true;
+let qrOpen=false;
+function toggleQR(){
+  qrOpen=!qrOpen;
+  const box=document.getElementById('qrBox');
+  const btn=document.getElementById('qrToggleBtn');
+  if(!box)return;
+  if(qrOpen){
+    const url=window.location.href.split('?')[0];
+    document.getElementById('qrUrl').textContent=url;
+    if(!qrGenerated){
+      const wrap=document.getElementById('qrCode');
+      wrap.innerHTML='';
+      new QRCode(wrap,{text:url,width:180,height:180,colorDark:'#1a1a1a',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.H});
+      qrGenerated=true;
+    }
+    box.style.display='block';
+    if(btn)btn.textContent='✕ Chiudi QR';
+  } else {
+    box.style.display='none';
+    if(btn)btn.textContent='📱 QR Code';
   }
-  modal.classList.remove('hidden');
 }
-function closeQR(){
-  document.getElementById('qrModal').classList.add('hidden');
-}
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeQR();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&qrOpen)toggleQR();});
 
 // Aggiornamento ogni 30 secondi per sicurezza
 setInterval(()=>{if(window._liveDB)renderLive();},30000);
 </script>
 
-<!-- QR MODAL -->
-<div class="qr-modal hidden" id="qrModal" onclick="if(event.target===this)closeQR()">
-  <div class="qr-box">
+<!-- QR SIDE PANEL -->
+<div class="qr-panel">
+  <div class="qr-box" id="qrBox" style="display:none">
     <h3>📱 Classifica Live</h3>
-    <p>Scansiona per vedere le classifiche sul telefono</p>
+    <p>Scansiona per vedere le classifiche</p>
     <div class="qr-code-wrap"><div id="qrCode"></div></div>
     <div class="qr-url" id="qrUrl"></div>
-    <button class="qr-close" onclick="closeQR()">Chiudi</button>
   </div>
+  <button class="qr-toggle" id="qrToggleBtn" onclick="toggleQR()">📱 QR Code</button>
 </div>
 <footer class="footer-noemi">
   <p>Progetto e idea di <a href="mailto:tnoemi.marcolini@gmail.com" class="link-noemi">Noemi Marcolini</a></p>
