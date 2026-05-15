@@ -132,15 +132,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 .footer-noemi{text-align:center;padding:40px 10px;font-family:sans-serif;font-size:.85em;color:var(--footer-text);animation:apparizione 1.5s ease-out;transition:color .3s}
 .link-noemi{color:inherit;text-decoration:none;font-weight:600;border-bottom:1px solid currentColor}
 @keyframes apparizione{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-/* PIN overlay */
-.pin-overlay{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px}
-.pin-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:2rem;max-width:360px;width:90%;text-align:center}
-.pin-title{font-size:20px;font-weight:700;margin-bottom:8px;color:var(--txt)}
-.pin-subtitle{font-size:13px;color:var(--txt2);margin-bottom:1.5rem}
-.pin-input{font-size:28px;font-weight:700;text-align:center;letter-spacing:8px;padding:12px;border:2px solid var(--border2);border-radius:10px;background:var(--inp);color:var(--txt);width:100%;margin-bottom:1rem;-webkit-text-security:disc}
-.pin-input:focus{border-color:#166534;outline:none}
-.pin-err{color:#dc2626;font-size:13px;margin-top:-8px;min-height:20px}
-.pin-hint{font-size:11px;color:var(--txt2);margin-top:8px}
+
 </style>
 </head>
 <body>
@@ -228,11 +220,8 @@ document.addEventListener('firebase-ready',()=>{
       setSyncStatus('ok','🔴 Live');
       // DB empty on Firebase - use local data
     }
-    // Always render after Firebase responds (first load or update)
-    if(!_writing){
-      if(isPinOk()) render();
-      else showPinOverlay();
-    }
+    // Always render after Firebase responds
+    if(!_writing) render();
   });
 });
 setTimeout(()=>{if(!fbReady)setSyncStatus('err','Offline — locale');},6000);
@@ -406,7 +395,6 @@ function renderHome(){
   let html=`<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
       <div class="card-title" style="margin-bottom:0">🏐 Gestione Tornei</div>
-      <button class="bxsm" onclick="changePin()" title="Cambia PIN di accesso">🔑 Cambia PIN</button>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:1.5rem;flex-wrap:wrap">
       <button class="bp" style="flex:1;padding:12px;font-size:15px;min-width:160px" onclick="startNuovoTorneo()">+ Nuovo torneo</button>
@@ -926,53 +914,6 @@ function renderBuilder(b){
 // RENDER PRINCIPALE
 // ============================================================
 
-// ============================================================
-// PIN AUTHENTICATION
-// ============================================================
-const PIN_KEY='torneo_pin_ok';
-const DEFAULT_PIN='1234'; // PIN di default — cambialo dal pannello admin
-
-function isPinOk(){
-  // Controlla sessione (valida per 8 ore)
-  const saved=sessionStorage.getItem(PIN_KEY);
-  if(!saved)return false;
-  try{const{ok,ts}=JSON.parse(saved);return ok&&(Date.now()-ts)<8*60*60*1000;}catch{return false;}
-}
-
-function showPinOverlay(){
-  const o=document.getElementById('pinOverlay');
-  if(o){o.style.display='flex';setTimeout(()=>document.getElementById('pinInput')?.focus(),100);}
-}
-
-function checkPin(){
-  const input=document.getElementById('pinInput')?.value||'';
-  const correctPin=DB._pin||DEFAULT_PIN;
-  if(input===correctPin){
-    sessionStorage.setItem(PIN_KEY,JSON.stringify({ok:true,ts:Date.now()}));
-    const overlay=document.getElementById('pinOverlay');
-    if(overlay) overlay.style.display='none';
-    render();
-  } else {
-    const err=document.getElementById('pinErr');
-    if(err) err.textContent='PIN non corretto. Riprova.';
-    const inp=document.getElementById('pinInput');
-    if(inp){inp.value='';inp.focus();}
-  }
-}
-
-function requirePin(){
-  if(!isPinOk()){showPinOverlay();return false;}
-  return true;
-}
-
-function changePin(){
-  const newPin=prompt('Inserisci il nuovo PIN (solo numeri, min 4 cifre):');
-  if(!newPin||newPin.length<4||!/^\d+$/.test(newPin)){alert('PIN non valido. Usa almeno 4 cifre numeriche.');return;}
-  const confirm2=prompt('Conferma il nuovo PIN:');
-  if(newPin!==confirm2){alert('I PIN non coincidono.');return;}
-  DB._pin=newPin;sv();alert('PIN aggiornato!');
-}
-
 function render(){
   const root=document.getElementById('root');
   if(!root)return;
@@ -980,26 +921,10 @@ function render(){
   else if(view==='torneo-setup') root.innerHTML=renderTorneoSetup();
   else if(view==='torneo') root.innerHTML=renderTorneo();
 }
-// Render immediately on load - don't wait for Firebase
-if(isPinOk()){
-  render(); // show home with local data while Firebase loads
-} else {
-  // Show PIN - render behind it too so it's ready
-  render();
-  showPinOverlay();
-}
+// Render on load
+render();
 </script>
 
-<!-- PIN OVERLAY -->
-<div class="pin-overlay" id="pinOverlay" style="display:none">
-  <div class="pin-card">
-    <div class="pin-title">🏐 Torneo Pallavolo</div>
-    <div class="pin-subtitle">Inserisci il PIN per accedere alla gestione</div>
-    <input class="pin-input" type="password" inputmode="numeric" maxlength="6" id="pinInput" placeholder="• • • •" onkeydown="if(event.key==='Enter')checkPin()" oninput="document.getElementById('pinErr').textContent=''">
-    <div class="pin-err" id="pinErr"></div>
-    <button class="bp" style="width:100%;padding:12px;font-size:15px" onclick="checkPin()">Accedi</button>
-    <div class="pin-hint">PIN dimenticato? Contatta l'organizzatore.</div>
-  </div>
 </div>
 
 <!-- FOOTER -->
