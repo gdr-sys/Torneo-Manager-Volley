@@ -5,15 +5,27 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="60">
 <title>Torneo Pallavolo — Classifiche Live</title>
-<script type="module">
-import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import{getDatabase,ref,onValue,off}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-const cfg={apiKey:"AIzaSyAI0RJEgV4n5kzJUxWbtn7S6mDeqQFcJu8",authDomain:"manager-torneo-pallavolo.firebaseapp.com",projectId:"manager-torneo-pallavolo",storageBucket:"manager-torneo-pallavolo.firebasestorage.app",messagingSenderId:"60737736156",appId:"1:60737736156:web:98d9e7f181c54676461319",databaseURL:"https://manager-torneo-pallavolo-default-rtdb.europe-west1.firebasedatabase.app"};
-const app=initializeApp(cfg);
-const db=getDatabase(app);
-onValue(ref(db,'db'),(snap)=>{
-  const data=snap.val();
-  if(data&&data.tornei){window._liveDB=data;renderLive();}
+<script>
+// Legge i dati dal localStorage ogni 3 secondi
+function loadFromStorage(){
+  try{
+    const raw=localStorage.getItem('torneo_local');
+    if(raw){
+      const data=JSON.parse(raw);
+      if(data&&data.tornei){window._liveDB=data;renderLive();}
+    }
+  }catch(e){console.error(e);}
+}
+// Aggiornamento ogni 3 secondi
+setInterval(loadFromStorage,3000);
+// BroadcastChannel: aggiornamento istantaneo quando index.html salva
+try{
+  const bc=new BroadcastChannel('torneo_update');
+  bc.onmessage=()=>loadFromStorage();
+}catch(e){}
+// Caricamento iniziale
+window.addEventListener('DOMContentLoaded',()=>{
+  loadFromStorage();
   setSyncStatus('ok');
 });
 </script>
@@ -108,7 +120,7 @@ tr:last-child td{border-bottom:none}
 <div class="live-header">
   <div>
     <div class="live-title">🏐 Classifiche Live</div>
-    <div class="live-subtitle" id="liveSubtitle">Torneo Pallavolo</div>
+    <div class="live-subtitle" id="liveSubtitle">Torneo Pallavolo — aggiornamento ogni 3s</div>
   </div>
   <div class="header-right">
     <div style="display:flex;align-items:center;gap:6px"><span class="sync-dot" id="syncDot"></span><span class="sync-txt" id="syncTxt">Live</span></div>
