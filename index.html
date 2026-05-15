@@ -212,14 +212,26 @@ lload();
 
 document.addEventListener(‘firebase-ready’,()=>{
 fbReady=true;setSyncStatus(‘wait’,‘Caricamento…’);
+let firstLoad=true;
 fbUnlisten=window._fbListen(‘db’,(data)=>{
 if(_writing){setSyncStatus(‘ok’,‘🔴 Live’);return;} // skip own echo
-if(data&&data.tornei){DB=data;lsv();}
+if(data&&data.tornei){
+DB=data;
+lsv();
+} else if(firstLoad) {
+// Firebase connected but DB empty — use local data if any
+}
+firstLoad=false;
 setSyncStatus(‘ok’,‘🔴 Live’);
-render();
+try{ render(); }catch(e){ console.error(‘Render error:’,e); }
 });
 });
-setTimeout(()=>{if(!fbReady)setSyncStatus(‘err’,‘Offline — locale’);},6000);
+setTimeout(()=>{
+if(!fbReady){
+setSyncStatus(‘err’,‘Offline — locale’);
+render(); // render with local data if Firebase never connects
+}
+},3000);
 
 // ============================================================
 // UTILS
@@ -854,17 +866,35 @@ return html;
 // ============================================================
 
 function render(){
+try{
 const root=document.getElementById(‘root’);
 if(!root)return;
 if(view===‘home’) root.innerHTML=renderHome();
 else if(view===‘torneo-setup’) root.innerHTML=renderTorneoSetup();
 else if(view===‘torneo’) root.innerHTML=renderTorneo();
+}catch(e){
+console.error(‘Render error:’,e);
+const root=document.getElementById(‘root’);
+if(root) root.innerHTML=`<div class="card" style="color:#dc2626"><p>Errore di caricamento. <button class="bp bsm" onclick="location.reload()">Ricarica</button></p><p style="font-size:11px;margin-top:8px;opacity:.6">${e.message}</p></div>`;
 }
-// Render on load
-render();
-</script>
+}
+// Show loading screen immediately, wait for Firebase
+document.getElementById(‘root’).innerHTML=`
 
-</div>
+  <div style="text-align:center;padding:4rem 1rem">
+    <div style="font-size:40px;margin-bottom:16px">🏐</div>
+    <div style="font-size:16px;font-weight:600;color:var(--txt);margin-bottom:8px">Caricamento in corso...</div>
+    <div style="font-size:13px;color:var(--txt2)">Connessione al database</div>
+  </div>`;
+
+// Fallback: if Firebase doesn’t respond in 5s, render with local data
+setTimeout(()=>{
+if(!fbReady){
+setSyncStatus(‘err’,‘Offline — dati locali’);
+try{ render(); }catch(e){ console.error(e); }
+}
+},5000);
+</script>
 
 <!-- FOOTER -->
 
