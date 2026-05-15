@@ -174,11 +174,13 @@ let PREFS={white:{sz:4,sets:2},green:{sz:4,sets:2},red:{sz:4,sets:2}};
 const collapsed=new Set();
 let isDark=false;
 let fbReady=false;
+let _writing=false;
 let fbUnlisten=null;
 let saveTimer=null;
 let builderState=null;
 let IC={}; // input cache
 let view='home'; // home | torneo-setup | torneo
+let localCat='white'; // local-only tab state, not synced
 let currentTorneoId=null;
 
 // Struttura dati principale
@@ -195,20 +197,42 @@ function sv(){
   if(saveTimer)clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{
     if(fbReady&&window._fbSet){
+      _writing=true;
       setSyncStatus('wait','Salvataggio...');
-      window._fbSet('db',DB).then(()=>setSyncStatus('ok','🔴 Live')).catch(()=>{setSyncStatus('err','Errore');lsv();});
+      window._fbSet('db',DB)
+        .then(()=>{setSyncStatus('ok','🔴 Live');setTimeout(()=>{_writing=false;},1000);})
+        .catch(()=>{setSyncStatus('err','Errore');_writing=false;lsv();});
     }else lsv();
   },500);
 }
 function lsv(){try{localStorage.setItem('tv_db',JSON.stringify(DB))}catch(e){}}
 function lload(){try{const d=localStorage.getItem('tv_db');if(d){const p=JSON.parse(d);if(p&&p.tornei)DB=p;}}catch(e){}}
+function azzeraDB(){
+  if(!confirm('Cancellare TUTTI i tornei e i dati da Firebase? Questa operazione non è reversibile.'))return;
+  DB={tornei:{}};
+  localStorage.removeItem('tv_db');
+  sv();
+  goHome();
+  alert('Database azzerato.');
+}
 lload();
 
 document.addEventListener('firebase-ready',()=>{
   fbReady=true;setSyncStatus('wait','Caricamento...');
   fbUnlisten=window._fbListen('db',(data)=>{
-    if(data&&data.tornei){DB=data;lsv();setSyncStatus('ok','🔴 Live');render();}
-    else setSyncStatus('ok','🔴 Live (vuoto)');
+    if(data&&data.tornei){
+      DB=data;
+      lsv();
+      setSyncStatus('ok','🔴 Live');
+    } else {
+      setSyncStatus('ok','🔴 Live');
+      // DB empty on Firebase - use local data
+    }
+    // Always render after Firebase responds (first load or update)
+    if(!_writing){
+      if(isPinOk()) render();
+      else showPinOverlay();
+    }
   });
 });
 setTimeout(()=>{if(!fbReady)setSyncStatus('err','Offline — locale');},6000);
@@ -219,7 +243,7 @@ setTimeout(()=>{if(!fbReady)setSyncStatus('err','Offline — locale');},6000);
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function toggleTheme(){isDark=!isDark;document.documentElement.setAttribute('data-theme',isDark?'dark':'light');document.getElementById('themeBtn').textContent=isDark?'☀️':'🌙';}
 function toggleCollapse(fid){if(collapsed.has(fid))collapsed.delete(fid);else collapsed.add(fid);render();}
-function goHome(){view='home';currentTorneoId=null;IC={};builderState=null;document.getElementById('torneoNomeHdr').textContent='Nessun torneo selezionato';render();}
+function goHome(){view='home';currentTorneoId=null;localCat='white';IC={};builderState=null;socEditState=null;document.getElementById('torneoNomeHdr').textContent='Nessun torneo selezionato';render();}
 function currentTorneo(){return currentTorneoId?DB.tornei[currentTorneoId]:null;}
 function catLabel(c){return c==='white'?'White':c==='green'?'Green':'Red';}
 function badge(c){return c==='white'?'bw':c==='green'?'bg2':'br2';}
@@ -329,13 +353,28 @@ function propagateElim(fase){
 // ============================================================
 // HELPERS TORNEO
 // ============================================================
-function getFasi(cat){const t=currentTorneo();if(!t)return[];if(!t.cats)t.cats={white:{fasi:[]},green:{fasi:[]},red:{fasi:[]}};if(!t.cats[cat])t.cats[cat]={fasi:[]};return t.cats[cat].fasi||(t.cats[cat].fasi=[]);}
+function getFasi(cat){
+  const t=currentTorneo();
+  if(!t)return[];
+  if(!t.cats)t.cats={white:{fasi:[]},green:{fasi:[]},red:{fasi:[]}};
+  if(!t.cats[cat])t.cats[cat]={fasi:[]};
+  if(!Array.isArray(t.cats[cat].fasi))t.cats[cat].fasi=[];
+  return t.cats[cat].fasi;
+}
 function getFase(cat,fid){return getFasi(cat).find(f=>f.id===fid);}
 function getGirone(cat,fid,gv){return getFase(cat,fid)?.gironi.find(g=>g.id===gv);}
 function icKey(cat,fid,gv,pid,f){return`${cat}_${fid}_${gv}_${pid}_${f}`;}
 function onInput(cat,fid,gv,pid,f,v){IC[icKey(cat,fid,gv,pid,f)]=v;}
 function getV(cat,fid,gv,pid,f,saved){const k=icKey(cat,fid,gv,pid,f);return IC[k]!==undefined?IC[k]:saved;}
-function setScat(c){const t=currentTorneo();if(!t)return;t._cat=c;document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab')[{white:0,green:1,red:2,admin:3,societa:4}[c]]?.classList.add('active');render();}
+function setScat(c){
+  localCat=c;
+  // Reset builder if switching away from its category
+  if(builderState&&builderState.cat!==c)builderState=null;
+  socEditState=null;
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab')[{white:0,green:1,red:2,admin:3,societa:4}[c]]?.classList.add('active');
+  render();
+}
 
 // ============================================================
 // PDF
@@ -369,9 +408,10 @@ function renderHome(){
       <div class="card-title" style="margin-bottom:0">🏐 Gestione Tornei</div>
       <button class="bxsm" onclick="changePin()" title="Cambia PIN di accesso">🔑 Cambia PIN</button>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:1.5rem">
-      <button class="bp" style="flex:1;padding:12px;font-size:15px" onclick="startNuovoTorneo()">+ Nuovo torneo</button>
-      <button style="padding:12px 18px;font-size:13px" onclick="importTorneo()">⬆ Importa JSON</button>
+    <div style="display:flex;gap:8px;margin-bottom:1.5rem;flex-wrap:wrap">
+      <button class="bp" style="flex:1;padding:12px;font-size:15px;min-width:160px" onclick="startNuovoTorneo()">+ Nuovo torneo</button>
+      <button style="padding:12px 18px;font-size:13px" onclick="importTorneo()">⬆ Importa</button>
+      <button style="padding:12px 18px;font-size:13px" class="bd" onclick="azzeraDB()">🗑 Azzera tutto</button>
     </div>
     ${ids.length?`<div class="sec">Tornei salvati</div>`:''} 
     ${ids.map(id=>{const t=DB.tornei[id];const nSoc=t.societa?.length||0;const date=t.createdAt?new Date(t.createdAt).toLocaleDateString('it-IT'):'';return`<div class="torneo-item" onclick="openTorneo('${id}')">
@@ -385,7 +425,7 @@ function renderHome(){
   </div>`;
   return html;
 }
-function openTorneo(id){currentTorneoId=id;view='torneo';const t=DB.tornei[id];document.getElementById('torneoNomeHdr').textContent=t.nome;if(!t._cat)t._cat='white';render();}
+function openTorneo(id){currentTorneoId=id;view='torneo';localCat='white';builderState=null;socEditState=null;IC={};const t=DB.tornei[id];document.getElementById('torneoNomeHdr').textContent=t.nome;render();}
 function eliminaTorneo(id){if(!confirm('Eliminare questo torneo?'))return;delete DB.tornei[id];sv();render();}
 function duplicaTorneo(id){const t=DB.tornei[id];const newId=uid();DB.tornei[newId]=JSON.parse(JSON.stringify(t));DB.tornei[newId].nome=t.nome+' (copia)';DB.tornei[newId].createdAt=Date.now();sv();render();}
 
@@ -492,7 +532,7 @@ function creaTorneo(){
 // ============================================================
 function renderTorneo(){
   const t=currentTorneo();if(!t)return renderHome();
-  const cat=t._cat||'white';
+  const cat=localCat||'white';
   let tabsHtml=`<div class="tabs">
     <button class="tab tw${cat==='white'?' active':''}" onclick="setScat('white')">⬜ White</button>
     <button class="tab tg${cat==='green'?' active':''}" onclick="setScat('green')">🟩 Green</button>
@@ -500,11 +540,11 @@ function renderTorneo(){
     <button class="tab${cat==='admin'?' active':''}" onclick="setScat('admin')">⚙️ Setup gironi</button>
     <button class="tab${cat==='societa'?' active':''}" onclick="setScat('societa')">🏢 Società</button>
   </div>`;
-  let content='';
-  if(cat==='admin') content=renderSetupGironi();
-  else if(cat==='societa') content=renderSocieta();
-  else content=renderCategoria(cat);
-  return tabsHtml+content;
+  let html='';
+  if(cat==='admin') html=renderSetupGironi();
+  else if(cat==='societa') html=renderSocieta();
+  else html=renderCategoria(cat);
+  return tabsHtml+html;
 }
 
 // ============================================================
@@ -618,8 +658,10 @@ function importTorneo(){
 // ============================================================
 function renderSetupGironi(){
   const t=currentTorneo();
-  // Assicura che fase1 esista per ogni categoria
-  for(const c of['white','green','red']){const fa=getFasi(c);if(!fa.length)fa.push({id:uid(),label:'Fase 1',gironi:[]});}
+  // Assicura che fase1 esista per ogni categoria e salva subito
+  let needSave=false;
+  for(const c of['white','green','red']){const fa=getFasi(c);if(!fa.length){fa.push({id:uid(),label:'Fase 1',gironi:[]});needSave=true;}}
+  if(needSave)sv();
   let html=`<div style="background:var(--info);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--txt2);margin-bottom:1rem;line-height:1.7">
     Crea i gironi iniziali (Fase 1). Scegli numero di squadre e set, poi clicca <strong>+ Girone</strong>. Le squadre e le società vengono assegnate automaticamente.
   </div>`;
@@ -667,14 +709,22 @@ function renderSetupGironi(){
 
 // Aggiunge girone con assegnazione automatica squadre+società
 function addGirone(cat){
-  const t=currentTorneo();const fasi=getFasi(cat);
-  if(!fasi.length){const f0={id:uid(),label:'Fase 1',gironi:[]};fasi.push(f0);}
-  const f1=fasi[0];
+  const t=currentTorneo();
+  if(!t){alert('Nessun torneo aperto.');return;}
+  // Ensure cats structure exists
+  if(!t.cats)t.cats={white:{fasi:[]},green:{fasi:[]},red:{fasi:[]}};
+  if(!t.cats[cat])t.cats[cat]={fasi:[]};
+  if(!t.cats[cat].fasi)t.cats[cat].fasi=[];
+  // Ensure fase1 exists
+  if(!t.cats[cat].fasi.length)t.cats[cat].fasi.push({id:uid(),label:'Fase 1',gironi:[]});
+  const f1=t.cats[cat].fasi[0];
+  if(!f1.gironi)f1.gironi=[];
   // Read from select if available, else use PREFS
   const szEl=document.getElementById('sz_'+cat);const setsEl=document.getElementById('sets_'+cat);
   if(szEl)PREFS[cat].sz=parseInt(szEl.value)||PREFS[cat].sz;
   if(setsEl)PREFS[cat].sets=parseInt(setsEl.value)||PREFS[cat].sets;
   const sz=PREFS[cat].sz;const sets=PREFS[cat].sets;
+  const fasi=t.cats[cat].fasi;
 
   // Nomi già usati nei gironi esistenti
   const usedNomi=fasi.flatMap(f=>f.gironi?.flatMap(g=>g.squadre.map(s=>s.nome))||[]);
@@ -737,7 +787,7 @@ function getVElim(fid,mk,field,saved){const k=`elim_${fid}_${mk}_${field}`;retur
 function renderCategoria(cat){
   const fasi=getFasi(cat);const b=badge(cat);
   if(builderState&&builderState.cat===cat)return renderBuilder(b);
-  if(!fasi.length||!fasi[0]?.gironi.length)return`<div style="text-align:center;padding:3rem;color:var(--txt2)"><p>Nessun girone. Vai in ⚙️ Setup gironi.</p></div>`;
+  if(!fasi.length||!fasi[0]?.gironi?.length)return`<div style="text-align:center;padding:3rem;color:var(--txt2)"><p>Nessun girone per questa categoria.<br>Vai in ⚙️ Setup gironi e clicca + Girone.</p></div>`;
   let html='';
   for(let fi=0;fi<fasi.length;fi++){
     const fase=fasi[fi];const isElim=fase.tipo==='elim';const isCollapsed=collapsed.has(fase.id);
@@ -896,16 +946,17 @@ function showPinOverlay(){
 
 function checkPin(){
   const input=document.getElementById('pinInput')?.value||'';
-  // PIN salvato su Firebase o default
   const correctPin=DB._pin||DEFAULT_PIN;
   if(input===correctPin){
     sessionStorage.setItem(PIN_KEY,JSON.stringify({ok:true,ts:Date.now()}));
-    document.getElementById('pinOverlay').style.display='none';
+    const overlay=document.getElementById('pinOverlay');
+    if(overlay) overlay.style.display='none';
     render();
   } else {
-    document.getElementById('pinErr').textContent='PIN non corretto. Riprova.';
-    document.getElementById('pinInput').value='';
-    document.getElementById('pinInput')?.focus();
+    const err=document.getElementById('pinErr');
+    if(err) err.textContent='PIN non corretto. Riprova.';
+    const inp=document.getElementById('pinInput');
+    if(inp){inp.value='';inp.focus();}
   }
 }
 
@@ -929,12 +980,13 @@ function render(){
   else if(view==='torneo-setup') root.innerHTML=renderTorneoSetup();
   else if(view==='torneo') root.innerHTML=renderTorneo();
 }
-// Check PIN on load
-if(!isPinOk()){
-  showPinOverlay();
-  // Show basic UI behind overlay so it renders on auth
+// Render immediately on load - don't wait for Firebase
+if(isPinOk()){
+  render(); // show home with local data while Firebase loads
 } else {
+  // Show PIN - render behind it too so it's ready
   render();
+  showPinOverlay();
 }
 </script>
 
